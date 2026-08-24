@@ -1,7 +1,7 @@
 # git-rescue
 
 [![CI Passing](https://github.com/omdesai69/git-rescue/actions/workflows/ci.yml/badge.svg)](https://github.com/omdesai69/git-rescue/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/git-rescue-cli.svg)](https://pypi.org/project/git-rescue-cli/)
+[![PyPI version](https://img.shields.io/pypi/v/git-rescue-cli.svg?color=brightgreen)](https://pypi.org/project/git-rescue-cli/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
@@ -173,8 +173,9 @@ pytest
 
 ## License
 
-MIT - see [LICENSE](LICENSE).
+MIT - see [LICENSE](https://github.com/omdesai69/git-rescue/blob/master/LICENSE).
 
 Copyright (c) 2026 Om Desai
+
 
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "git-rescue-cli"
-version = "0.1.1"
+version = "0.1.2"
 description = "Zero-dependency Git disaster recovery CLI tool"
 readme = "README.md"
 license = "MIT"
@@ -58,4 +58,5 @@ include = [
     "/LICENSE",
     "/pyproject.toml",
 ]
+
 
