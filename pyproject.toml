@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "git-rescue"
+name = "git-rescue-cli"
 version = "0.1.0"
 description = "Zero-dependency Git disaster recovery CLI tool"
 readme = "README.md"

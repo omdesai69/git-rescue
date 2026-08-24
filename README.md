@@ -1,6 +1,6 @@
 # git-rescue
 
-[![PyPI version](https://img.shields.io/pypi/v/git-rescue.svg)](https://pypi.org/project/git-rescue/)
+[![PyPI version](https://img.shields.io/pypi/v/git-rescue-cli.svg)](https://pypi.org/project/git-rescue-cli/)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen.svg)](#)
@@ -24,7 +24,7 @@ git reset --hard HEAD@{3}
 ## The Solution
 
 ```bash
-pip install git-rescue
+pip install git-rescue-cli
 ```
 
 ```bash
@@ -42,7 +42,7 @@ git-rescue files              # Recover lost staged files
 ### Installation
 
 ```bash
-pip install git-rescue
+pip install git-rescue-cli
 ```
 
 Or install from source:
@@ -175,3 +175,4 @@ pytest
 MIT - see [LICENSE](LICENSE).
 
 Copyright (c) 2026 Om Desai
+
