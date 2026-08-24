@@ -13,18 +13,24 @@ from git_rescue.core.git_client import GitClient, GitError
 
 PREVIEW_MAX_BYTES = 200
 RECOVERY_DIR_NAME = "rescue-recovered"
-FSCK_PATTERN = re.compile(r"dangling (blob|commit|tree) ([0-9a-f]{40})")
+# Object IDs are 40 hex chars under SHA-1 and 64 under SHA-256. Anchoring on the
+# boundary keeps a SHA-256 id from being truncated to its first 40 characters.
+FSCK_PATTERN = re.compile(r"dangling (blob|commit|tree) ((?:[0-9a-f]{64}|[0-9a-f]{40}))(?![0-9a-f])")
 
+# Ordered most-specific first: each predicate sees only the first line.
 EXTENSION_RULES = [
-    (lambda l: "python" in l or l.startswith(("import ", "from ", "def ")), ".py"),
-    (lambda l: "bash" in l or "sh" in l, ".sh"),
-    (lambda l: "node" in l or l.startswith(("function ", "const ", "var ")), ".js"),
-    (lambda l: l.startswith(("<!DOCTYPE", "<html")), ".html"),
+    (lambda l: l.startswith(("<!DOCTYPE", "<html", "<!doctype")), ".html"),
     (lambda l: l.startswith("<?xml"), ".xml"),
     (lambda l: l.startswith(("{", "[")), ".json"),
-    (lambda l: l.startswith("package "), ".java"),
     (lambda l: l.startswith("#include"), ".c"),
+    (lambda l: l.startswith("package "), ".java"),
+    (lambda l: l.startswith("#!") and ("sh" in l or "bash" in l or "zsh" in l), ".sh"),
+    (lambda l: l.startswith("#!") and "python" in l, ".py"),
+    (lambda l: l.startswith("#!") and "node" in l, ".js"),
+    (lambda l: l.startswith(("import ", "from ", "def ", "class ", "async def ")), ".py"),
+    (lambda l: l.startswith(("function ", "const ", "let ", "var ", "export ", "require(")), ".js"),
 ]
+
 
 
 @dataclass
@@ -92,7 +98,10 @@ def recover_blobs(client: GitClient, target_dir: Optional[Path] = None) -> List[
         return []
 
     target_dir = target_dir or (Path(client.repo_path) / ".git" / RECOVERY_DIR_NAME)
-    target_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        target_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise GitError(f"Cannot create recovery directory {target_dir}: {exc}")
     records: List[dict] = []
     iso_time = time.strftime("%Y-%m-%dT%H:%M:%S%z")
 
@@ -112,13 +121,17 @@ def recover_blobs(client: GitClient, target_dir: Optional[Path] = None) -> List[
             filepath = target_dir / f"{short_hash}_{counter}{ext}"
             counter += 1
 
-        filepath.write_text(content, encoding="utf-8")
         meta = {
             "hash": blob.hash, "size": blob.size, "recovered_at": iso_time,
             "path": str(filepath), "preview": blob.preview[:100],
         }
-        meta_path = filepath.with_suffix(filepath.suffix + ".meta.json")
-        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        # One unwritable blob must not abort recovery of the rest.
+        try:
+            filepath.write_text(content, encoding="utf-8", errors="replace")
+            meta_path = filepath.with_name(filepath.name + ".meta.json")
+            meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        except OSError:
+            continue
         records.append(meta)
 
     return records

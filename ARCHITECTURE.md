@@ -55,8 +55,10 @@ git_rescue/
 │       └── recovery.py       # safety snapshot + restore
 ├── tests/
 │   ├── __init__.py
+│   ├── conftest.py           # make_repo fixture (real isolated git repos)
 │   ├── test_git_client.py
 │   ├── test_reflog_parser.py
+│   ├── test_blob_scanner.py
 │   ├── test_recovery.py
 │   └── test_cli.py
 ├── pyproject.toml
@@ -83,8 +85,12 @@ reflog → find_deleted_branches() → create_backup_snapshot() → git branch <
 
 ### Files Command
 ```
-git fsck --lost-found → DanglingObject[] → filter blobs → cat-file → .git/rescue-recovered/ → report
+git fsck --dangling → DanglingObject[] → filter blobs → cat-file → .git/rescue-recovered/ → report
 ```
+
+`--dangling` rather than `--lost-found`: both report the same objects, but
+`--lost-found` writes copies into `.git/lost-found/`. Scanning must never mutate
+the repository it is diagnosing.
 
 ## Auth Flow
 

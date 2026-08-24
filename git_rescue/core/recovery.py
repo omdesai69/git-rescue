@@ -52,7 +52,12 @@ def create_backup_snapshot(client: GitClient) -> str:
         head = client.current_head()
     except GitError:
         raise GitError("Cannot create backup: no commits in this repository yet.")
-    ref_name = f"{BACKUP_REF_PREFIX}-{int(time.time())}"
+    base = f"{BACKUP_REF_PREFIX}-{int(time.time())}"
+    ref_name, suffix = base, 1
+    # Two rescues inside the same second must not overwrite each other's backup.
+    while client.ref_exists(ref_name):
+        ref_name = f"{base}.{suffix}"
+        suffix += 1
     client.create_ref(ref_name, head)
     return ref_name
 
@@ -60,6 +65,16 @@ def create_backup_snapshot(client: GitClient) -> str:
 def undo_last_destructive(client: GitClient) -> UndoResult:
     """Detect and revert the last destructive git operation."""
     backup_ref = create_backup_snapshot(client)
+    # `reset --hard` below discards uncommitted work, which a backup ref (a commit
+    # pointer) cannot restore. Refuse rather than silently destroy it.
+    if client.is_worktree_dirty():
+        return UndoResult(
+            False,
+            "Uncommitted changes present — `undo` would discard them.\n"
+            "     Commit or stash them first (`git stash`), then run `git-rescue undo` again.",
+            backup_ref,
+        )
+
     entries = parse_reflog(client.reflog(limit=50))
     match = find_pre_destructive_hash(entries)
     if not match:
@@ -93,6 +108,8 @@ def list_deleted_branches(client: GitClient) -> List[Tuple[str, str, str]]:
 def restore_branch(client: GitClient, branch_name: str, commit_hash: str) -> BranchRestoreResult:
     """Restore a deleted branch at a specific commit."""
     backup_ref = create_backup_snapshot(client)
+    if not client.is_valid_branch_name(branch_name):
+        return BranchRestoreResult(False, f"Invalid branch name: {branch_name!r}", backup_ref)
     if branch_name in set(client.branch_list()):
         return BranchRestoreResult(False, f"Branch '{branch_name}' already exists.", backup_ref)
 

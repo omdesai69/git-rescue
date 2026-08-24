@@ -28,6 +28,65 @@ class TestGitClientRun:
         with pytest.raises(GitError):
             GitClient(make_repo()).run(["log", "--oneline", "nonexistent-ref-abc123"])
 
+    def test_uncaptured_output_does_not_crash_helpers(self, make_repo):
+        """capture=False leaves stdout as None; helpers must tolerate it."""
+        client = GitClient(make_repo())
+        result = client.run(["rev-parse", "HEAD"], capture=False)
+        assert client._out(result) == ""
+
+    def test_timeout_message_reports_effective_timeout(self, make_repo, monkeypatch):
+        """The message interpolated the `timeout` argument, printing "after Nones"."""
+        client = GitClient(make_repo())
+
+        def fake_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=args[0], timeout=kwargs.get("timeout"))
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        with pytest.raises(GitError) as exc:
+            client.run(["status"])
+        assert f"after {GitClient.SUBPROCESS_TIMEOUT}s" in str(exc.value)
+        assert "None" not in str(exc.value)
+
+
+class TestFsckIsReadOnly:
+    def test_does_not_write_lost_found(self, make_repo):
+        repo = make_repo()
+        GitClient(repo).fsck_dangling()
+        assert not (Path(repo) / ".git" / "lost-found").exists()
+
+
+class TestBranchNameValidation:
+    def test_accepts_ordinary_names(self, make_repo):
+        client = GitClient(make_repo())
+        for name in ("feature-x", "release/1.2", "fix_123"):
+            assert client.is_valid_branch_name(name) is True
+
+    def test_rejects_malformed_and_option_like_names(self, make_repo):
+        client = GitClient(make_repo())
+        for name in ("", "-D", "--force", "has space", "has..dots", "ends.lock", "back\\slash"):
+            assert client.is_valid_branch_name(name) is False, name
+
+
+class TestWorktreeState:
+    def test_clean_repo_is_not_dirty(self, make_repo):
+        assert GitClient(make_repo()).is_worktree_dirty() is False
+
+    def test_modified_tracked_file_is_dirty(self, make_repo):
+        repo = make_repo()
+        (repo / "README.md").write_text("# Changed\n", encoding="utf-8")
+        assert GitClient(repo).is_worktree_dirty() is True
+
+
+class TestRefExists:
+    def test_missing_ref(self, make_repo):
+        assert GitClient(make_repo()).ref_exists("refs/rescue/nope") is False
+
+    def test_present_ref(self, make_repo):
+        client = GitClient(make_repo())
+        client.create_ref("refs/rescue/yes", client.current_head())
+        assert client.ref_exists("refs/rescue/yes") is True
+
+
 
 class TestGitClientReflog:
     def test_reflog_has_entries(self, make_repo):

@@ -6,6 +6,7 @@ import argparse
 import os
 import re
 import sys
+import unicodedata
 from typing import Optional
 
 from git_rescue import __version__
@@ -42,10 +43,25 @@ class Color:
             "MAGENTA", "CYAN", "WHITE", "BRIGHT_RED", "BRIGHT_GREEN",
             "BRIGHT_YELLOW", "BRIGHT_CYAN")
 
+    # Captured before any disable() so colors can be restored (tests, library use).
+    _DEFAULTS = {
+        "RESET": "\033[0m", "BOLD": "\033[1m", "DIM": "\033[2m", "RED": "\033[31m",
+        "GREEN": "\033[32m", "YELLOW": "\033[33m", "BLUE": "\033[34m",
+        "MAGENTA": "\033[35m", "CYAN": "\033[36m", "WHITE": "\033[37m",
+        "BRIGHT_RED": "\033[91m", "BRIGHT_GREEN": "\033[92m",
+        "BRIGHT_YELLOW": "\033[93m", "BRIGHT_CYAN": "\033[96m",
+    }
+
     @classmethod
     def disable(cls) -> None:
         for attr in cls._ALL:
             setattr(cls, attr, "")
+
+    @classmethod
+    def enable(cls) -> None:
+        for attr in cls._ALL:
+            setattr(cls, attr, cls._DEFAULTS[attr])
+
 
 
 def _enable_windows_ansi() -> None:
@@ -70,35 +86,77 @@ def _strip_ansi(text: str) -> str:
     return ANSI_RE.sub("", text)
 
 
-def _box(title: str, lines: list[str], color: str = Color.CYAN) -> str:
+def _display_width(text: str) -> int:
+    """Terminal column width of `text`, ignoring ANSI codes.
+
+    len() undercounts emoji: they occupy two columns but one code point, which
+    pushed the right-hand border of every box out of alignment.
+    """
+    width = 0
+    chars = _strip_ansi(text)
+    for i, ch in enumerate(chars):
+        if ch in "️‍" or unicodedata.combining(ch):
+            continue  # variation selector / ZWJ / accent: no advance
+        if unicodedata.east_asian_width(ch) in ("W", "F"):
+            width += 2
+        elif chars[i + 1:i + 2] == "️":
+            width += 2  # forced emoji presentation, e.g. ⚠️ / ✏️ / ⬇️
+        else:
+            width += 1
+    return width
+
+
+def _box(title: str, lines: list[str], color: Optional[str] = None) -> str:
+    # Resolved at call time: a default of Color.CYAN would bind the escape code at
+    # import time and keep emitting it after --no-color called Color.disable().
+    color = Color.CYAN if color is None else color
     all_lines = [title] + lines
-    width = max(max((len(_strip_ansi(l)) for l in all_lines), default=0) + 4, 40)
+    width = max(max((_display_width(l) for l in all_lines), default=0) + 4, 40)
     top = f"{color}╭{'─' * (width - 2)}╮{Color.RESET}"
     bottom = f"{color}╰{'─' * (width - 2)}╯{Color.RESET}"
-    body = [f"{color}│{Color.RESET} {l}{' ' * max(0, width - len(_strip_ansi(l)) - 4)} {color}│{Color.RESET}" for l in all_lines]
+    body = [f"{color}│{Color.RESET} {l}{' ' * max(0, width - _display_width(l) - 4)} {color}│{Color.RESET}" for l in all_lines]
     return "\n".join([top, *body, bottom])
 
 
+def _center(text: str, width: int) -> str:
+    """Center by display width, so emoji don't shift the frame."""
+    pad = max(0, width - _display_width(text))
+    left = pad // 2
+    return f"{' ' * left}{text}{' ' * (pad - left)}"
+
+
 def _header() -> str:
+    title = f"🛟  git-rescue v{__version__}"
+    subtitle = "Zero-dependency Git recovery"
+    # Width is computed, not hard-coded: a longer __version__ used to break the frame.
+    inner = max(_display_width(title), _display_width(subtitle)) + 12
     return (
         f"\n{Color.BOLD}{Color.BRIGHT_CYAN}"
-        f"  ╔══════════════════════════════════════╗\n"
-        f"  ║         🛟  git-rescue v{__version__}         ║\n"
-        f"  ║     Zero-dependency Git recovery     ║\n"
-        f"  ╚══════════════════════════════════════╝"
+        f"  ╔{'═' * inner}╗\n"
+        f"  ║{_center(title, inner)}║\n"
+        f"  ║{_center(subtitle, inner)}║\n"
+        f"  ╚{'═' * inner}╝"
         f"{Color.RESET}\n"
     )
 
 
+# Attribute *names*, resolved through getattr at render time. Storing the escape
+# codes directly froze them at import, so --no-color left raw ANSI in the output.
 TIMELINE_STYLES = {
-    "commit": (Color.BRIGHT_GREEN, "●"),
-    "commit_amend": (Color.BRIGHT_GREEN, "●"),
-    "checkout": (Color.BRIGHT_CYAN, "◆"),
-    "rebase": (Color.BRIGHT_YELLOW, "◈"),
-    "rebase_abort": (Color.BRIGHT_YELLOW, "◈"),
-    "merge": (Color.MAGENTA, "◉"),
-    "merge_commit": (Color.MAGENTA, "◉"),
+    "commit": ("BRIGHT_GREEN", "●"),
+    "commit_amend": ("BRIGHT_GREEN", "●"),
+    "checkout": ("BRIGHT_CYAN", "◆"),
+    "rebase": ("BRIGHT_YELLOW", "◈"),
+    "rebase_abort": ("BRIGHT_YELLOW", "◈"),
+    "merge": ("MAGENTA", "◉"),
+    "merge_commit": ("MAGENTA", "◉"),
 }
+
+
+def _style_for(category: str) -> tuple:
+    name, marker = TIMELINE_STYLES.get(category, ("WHITE", "○"))
+    return getattr(Color, name), marker
+
 
 
 def cmd_timeline(client: GitClient, limit: int = 20) -> int:
@@ -116,7 +174,7 @@ def cmd_timeline(client: GitClient, limit: int = 20) -> int:
             destructive_count += 1
             color, marker = Color.BRIGHT_RED, "▸"
         else:
-            color, marker = TIMELINE_STYLES.get(entry.category, (Color.WHITE, "○"))
+            color, marker = _style_for(entry.category)
 
         idx = f"{Color.DIM}[{i}]{Color.RESET}"
         h = f"{Color.DIM}{entry.hash[:8]}{Color.RESET}"
@@ -224,20 +282,31 @@ def cmd_files(client: GitClient) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
+    # Global flags live on a parent parser so they are accepted both before and
+    # after the subcommand (`git-rescue timeline --no-color` used to be rejected).
+    # SUPPRESS is essential: with a real default, the subparser writes its own
+    # default over a value already set at the top level, so `--no-color timeline`
+    # would silently lose the flag.
+    globals_parser = argparse.ArgumentParser(add_help=False)
+    globals_parser.add_argument("--no-color", action="store_true",
+                                default=argparse.SUPPRESS,
+                                help="Disable colorized output")
+
     parser = argparse.ArgumentParser(
         prog="git-rescue", description="🛟  Zero-dependency Git disaster recovery tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[globals_parser],
     )
     parser.add_argument("--version", action="version", version=f"git-rescue {__version__}")
-    parser.add_argument("--no-color", action="store_true", default=False, help="Disable colorized output")
 
     sub = parser.add_subparsers(dest="command")
-    tl = sub.add_parser("timeline", help="Show colorized reflog timeline (default)")
+    tl = sub.add_parser("timeline", help="Show colorized reflog timeline (default)",
+                        parents=[globals_parser])
     tl.add_argument("-n", "--limit", type=int, default=20, help="Number of entries (default: 20)")
-    sub.add_parser("undo", help="Revert the last destructive git operation")
-    br = sub.add_parser("branches", help="List and restore deleted branches")
+    sub.add_parser("undo", help="Revert the last destructive git operation", parents=[globals_parser])
+    br = sub.add_parser("branches", help="List and restore deleted branches", parents=[globals_parser])
     br.add_argument("--restore", metavar="BRANCH", help="Restore a specific deleted branch")
-    sub.add_parser("files", help="Recover lost staged files from dangling blobs")
+    sub.add_parser("files", help="Recover lost staged files from dangling blobs", parents=[globals_parser])
     return parser
 
 
@@ -251,9 +320,10 @@ def main(argv: Optional[list[str]] = None) -> int:
                     pass
 
     args = build_parser().parse_args(argv)
-    if args.no_color or not _should_use_color():
+    if getattr(args, "no_color", False) or not _should_use_color():
         Color.disable()
     else:
+        Color.enable()
         _enable_windows_ansi()
 
     try:
@@ -267,6 +337,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     except GitError as exc:
         print(f"{Color.RED}Error: {exc}{Color.RESET}", file=sys.stderr)
         return 1
+    except KeyboardInterrupt:
+        return 130
 
     cmd = args.command or "timeline"
     try:
@@ -282,9 +354,20 @@ def main(argv: Optional[list[str]] = None) -> int:
     except GitError as exc:
         print(f"\n  {Color.RED}Git error: {exc}{Color.RESET}", file=sys.stderr)
         return 1
+    except BrokenPipeError:
+        # Downstream closed the pipe (e.g. `| head`) — exit quietly.
+        try:
+            sys.stdout.close()
+        except Exception:
+            pass
+        return 0
+    except OSError as exc:
+        print(f"\n  {Color.RED}I/O error: {exc}{Color.RESET}", file=sys.stderr)
+        return 1
     except KeyboardInterrupt:
         print(f"\n  {Color.DIM}Interrupted.{Color.RESET}")
         return 130
+
 
 
 def cli_entry() -> None:

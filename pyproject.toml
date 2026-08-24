@@ -29,6 +29,14 @@ classifiers = [
     "Topic :: Software Development :: Version Control :: Git",
 ]
 
+[project.optional-dependencies]
+# README's development instructions are `pip install -e ".[dev]"`, which fails
+# without this table. The runtime stays zero-dependency (ADR-0001); this is
+# test-time only.
+dev = [
+    "pytest>=7.0",
+]
+
 [project.scripts]
 git-rescue = "git_rescue.cli:cli_entry"
 

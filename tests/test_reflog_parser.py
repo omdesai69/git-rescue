@@ -59,6 +59,24 @@ class TestParseReflog:
     def test_malformed_lines_skipped(self):
         assert parse_reflog("incomplete line without separators\n") == []
 
+    def test_timestamp_prefers_reflog_event_date(self):
+        """`%ci` is the target commit's date. Checking out an old commit today must
+        not be timestamped years ago on the timeline."""
+        raw = ("abc1234567890123456789012345678901234567\x1e"
+               "HEAD@{2026-08-23 17:00:53 +0530}\x1e"
+               "checkout: moving from main to old-thing\x1e"
+               "2020-01-01 10:00:00 +0000\n")
+        entry = parse_reflog(raw)[0]
+        assert entry.timestamp == "2026-08-23 17:00:53 +0530"
+        assert entry.commit_timestamp == "2020-01-01 10:00:00 +0000"
+
+    def test_timestamp_falls_back_to_commit_date(self):
+        """Index-form selectors carry no date; the commit date is the only option."""
+        raw = ("abc1234567890123456789012345678901234567\x1eHEAD@{0}\x1e"
+               "commit: x\x1e2024-01-01 12:00:00 +0000\n")
+        assert parse_reflog(raw)[0].timestamp == "2024-01-01 12:00:00 +0000"
+
+
 
 class TestFindDestructive:
     def _make_entries(self) -> list[ReflogEntry]:
@@ -93,3 +111,44 @@ class TestFindDeletedBranches:
 
         deleted = find_deleted_branches(GitClient(repo))
         assert "feature-x" in [name for name, _ in deleted]
+
+    def test_reports_the_branch_own_tip_not_the_checkout_target(self, make_repo):
+        """A reflog entry's hash is HEAD *after* the op.
+
+        For `checkout: moving from feature to main` that hash is main's tip, so
+        attributing it to `feature` restored the branch at the wrong commit and
+        silently dropped every commit made on it.
+        """
+        repo = make_repo()
+        run = lambda *a: subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True, check=True)
+        base = run("rev-parse", "HEAD").stdout.strip()
+
+        run("checkout", "-b", "feature-y")
+        (repo / "work.txt").write_text("the work", encoding="utf-8")
+        run("add", ".")
+        run("commit", "-m", "Work that must survive")
+        feature_tip = run("rev-parse", "HEAD").stdout.strip()
+        assert feature_tip != base
+
+        default = next(b for b in ("master", "main")
+                       if subprocess.run(["git", "-C", str(repo), "rev-parse", "--verify", b],
+                                         capture_output=True).returncode == 0)
+        run("checkout", default)
+        run("branch", "-D", "feature-y")
+
+        found = dict(find_deleted_branches(GitClient(repo)))
+        assert found.get("feature-y") == feature_tip, (
+            f"expected feature-y at its own tip {feature_tip[:8]}, got {str(found.get('feature-y'))[:8]}"
+        )
+
+    def test_reflog_selectors_are_never_reported_as_branches(self, make_repo):
+        """Names were once derived from the reflog selector, yielding `HEAD@{3}`."""
+        repo = make_repo()
+        subprocess.run(["git", "-C", str(repo), "checkout", "-b", "tmp-branch"], capture_output=True, check=True)
+        for b in ("master", "main"):
+            subprocess.run(["git", "-C", str(repo), "checkout", b], capture_output=True, check=False)
+        subprocess.run(["git", "-C", str(repo), "branch", "-D", "tmp-branch"], capture_output=True, check=True)
+
+        for name, _ in find_deleted_branches(GitClient(repo)):
+            assert "@{" not in name and not name.startswith("refs/")
+
