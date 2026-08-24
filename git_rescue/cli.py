@@ -372,3 +372,4 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 def cli_entry() -> None:
     sys.exit(main())
+
