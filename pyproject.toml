@@ -10,9 +10,9 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.8"
 authors = [
-    { name = "Om Desai" },
+    { name = "Om Desai", email = "omdesai608@gmail.com" },
 ]
-keywords = ["git", "recovery", "reflog", "undo", "cli"]
+keywords = ["git", "recovery", "reflog", "undo", "cli", "disaster-recovery"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -30,20 +30,19 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-# README's development instructions are `pip install -e ".[dev]"`, which fails
-# without this table. The runtime stays zero-dependency (ADR-0001); this is
-# test-time only.
 dev = [
     "pytest>=7.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
 ]
 
 [project.scripts]
 git-rescue = "git_rescue.cli:cli_entry"
 
 [project.urls]
-Homepage = "https://github.com/omdesai/git-rescue"
-Repository = "https://github.com/omdesai/git-rescue"
-Issues = "https://github.com/omdesai/git-rescue/issues"
+Homepage = "https://github.com/omdesai69/git-rescue"
+Repository = "https://github.com/omdesai69/git-rescue"
+Issues = "https://github.com/omdesai69/git-rescue/issues"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -51,3 +50,11 @@ addopts = "-v"
 
 [tool.hatch.build.targets.wheel]
 packages = ["git_rescue"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/git_rescue",
+    "/README.md",
+    "/LICENSE",
+    "/pyproject.toml",
+]
