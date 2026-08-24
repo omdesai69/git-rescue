@@ -1,20 +1,14 @@
 name: Publish to PyPI
 
 on:
-  push:
-    tags:
-      - 'v*'
-    branches:
-      - master
+  release:
+    types: [published]
   workflow_dispatch:
 
 jobs:
   pypi-publish:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/git-rescue
     permissions:
       id-token: write
       contents: read
